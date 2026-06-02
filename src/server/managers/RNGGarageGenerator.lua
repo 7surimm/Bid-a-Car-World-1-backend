@@ -1,12 +1,13 @@
 --[[
     RNGGarageGenerator.lua
-    Purpose: Create random garages based on tier
-    Generates car, decorations, and locker contents
+    Purpose: Create random garages based on tier (ONE physical location, dynamic generation)
+    GAME_ARCHITECTURE: "Physical Garage Details - Location: Workspace > Garage"
+    NOW INCLUDES: SpawnCarModel() and SpawnDecorationModel() functions
 ]]
 
 local RNGGarageGenerator = {}
 
--- Tier specifications
+-- Tier specifications per GAME_ARCHITECTURE
 local TIER_SPECS = {
     BEGINNER = {
         entryFee = 200,
@@ -36,8 +37,15 @@ local TIER_SPECS = {
         entryFee = 5000,
         carRarities = { epic = 1/24, legendary = 1/8, spec = 0.25 },
         decoRange = { min = 50, max = 80 },
-        lockerChance = 2
+        lockerChance = 2  -- GAME_ARCHITECTURE: "2x 1/1 (always double)"
     }
+}
+
+-- Garage spawn locations per GAME_ARCHITECTURE
+local GARAGE_CONFIG = {
+    location = workspace:FindFirstChild("Garage") or workspace,
+    carSpawnPoint = Vector3.new(0, 0, 0),  -- Center of garage
+    decoSpawnRadius = 20,  -- Radius around garage for decorations
 }
 
 --[[
@@ -55,7 +63,8 @@ function RNGGarageGenerator:GenerateGarage(tierType)
         tier = tierType,
         car = self:GenerateCar(spec.carRarities),
         decorations = self:GenerateDecorations(spec.decoRange),
-        locker = self:GenerateLocker(spec.lockerChance)
+        lockers = self:GenerateLockers(spec.lockerChance),  -- Changed to lockers (plural)
+        generatedAt = os.time()
     }
 end
 
@@ -116,7 +125,8 @@ function RNGGarageGenerator:GenerateDecorations(decoRange)
         table.insert(decorations, {
             id = "deco_" .. i,
             name = "#" .. i,
-            value = 20
+            value = 20,
+            index = i
         })
     end
     
@@ -124,26 +134,47 @@ function RNGGarageGenerator:GenerateDecorations(decoRange)
 end
 
 --[[
-    Generate locker (if dropped)
-    @param lockerChance: number - Chance to get locker
-    @return: table - Locker data or nil
-]]
-function RNGGarageGenerator:GenerateLocker(lockerChance)
-    local roll = math.random()
+    Generate locker(s) based on tier
+    GAME_ARCHITECTURE: "TIER5: 2x 1/1 (always double)"
     
-    if roll <= lockerChance then
-        local rarities = { "silver", "gold", "black" }
-        local rarity = rarities[math.random(1, 3)]
+    @param lockerChance: number - Chance to get locker
+    @return: table - Array of locker data (can be 0, 1, or 2)
+]]
+function RNGGarageGenerator:GenerateLockers(lockerChance)
+    local lockers = {}
+    
+    -- TIER5 has lockerChance = 2, meaning 2 guaranteed lockers
+    if lockerChance == 2 then
+        -- Generate 2 lockers for TIER5
+        for i = 1, 2 do
+            local rarities = { "silver", "gold", "black" }
+            local rarity = rarities[math.random(1, 3)]
+            
+            table.insert(lockers, {
+                id = "locker_" .. rarity .. "_" .. os.time() .. "_" .. i,
+                rarity = rarity,
+                unopened = true,
+                contents = self:PopulateLockerContents(rarity)
+            })
+        end
+    else
+        -- Other tiers: roll for locker chance
+        local roll = math.random()
         
-        return {
-            id = "locker_" .. rarity .. "_" .. os.time(),
-            rarity = rarity,
-            unopened = true,
-            contents = self:PopulateLockerContents(rarity)
-        }
+        if roll <= lockerChance then
+            local rarities = { "silver", "gold", "black" }
+            local rarity = rarities[math.random(1, 3)]
+            
+            table.insert(lockers, {
+                id = "locker_" .. rarity .. "_" .. os.time(),
+                rarity = rarity,
+                unopened = true,
+                contents = self:PopulateLockerContents(rarity)
+            })
+        end
     end
     
-    return nil
+    return lockers
 end
 
 --[[
@@ -185,11 +216,132 @@ function RNGGarageGenerator:PopulateLockerContents(rarity)
         table.insert(contents, {
             id = "deco_" .. math.random(1, 100),
             name = "#" .. math.random(1, 100),
-            value = 20
+            value = 20,
+            type = "decoration"
         })
     end
     
     return contents
+end
+
+--[[
+    Spawn car model at center of garage
+    GAME_ARCHITECTURE: "Spawn car model at center position"
+    
+    @param carId: string - Car ID
+    @param carName: string - Car name (for display)
+    @return: table - Model reference (for later cleanup)
+]]
+function RNGGarageGenerator:SpawnCarModel(carId, carName)
+    local garageLocation = GARAGE_CONFIG.location
+    if not garageLocation then
+        warn("[RNGGarageGenerator] Garage location not found in Workspace")
+        return nil
+    end
+    
+    -- Create a placeholder car model (in real game, load from ServerStorage/ReplicatedStorage)
+    local carModel = Instance.new("Part")
+    carModel.Name = "Car_" .. carId
+    carModel.Shape = Enum.PartType.Box
+    carModel.Size = Vector3.new(4, 2, 8)
+    carModel.Color = Color3.fromRGB(255, 200, 50)  -- Gold color
+    carModel.Material = Enum.Material.Neon
+    carModel.CanCollide = true
+    carModel.CFrame = CFrame.new(GARAGE_CONFIG.carSpawnPoint)
+    carModel.Parent = garageLocation
+    
+    -- Add BillboardGui with car name
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Size = UDim2.new(4, 0, 1, 0)
+    billboardGui.MaxDistance = 100
+    billboardGui.Parent = carModel
+    
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Text = carName
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.BackgroundTransparency = 0
+    textLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    textLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
+    textLabel.TextSize = 14
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.Parent = billboardGui
+    
+    print("[RNGGarageGenerator] Spawned car: " .. carName .. " at garage")
+    return carModel
+end
+
+--[[
+    Spawn decoration model around garage perimeter
+    GAME_ARCHITECTURE: "Spawn each decoration model around garage perimeter"
+    
+    @param decoId: string - Decoration ID
+    @param decoIndex: number - Decoration index (#1, #2, etc)
+    @return: table - Model reference (for later cleanup)
+]]
+function RNGGarageGenerator:SpawnDecorationModel(decoId, decoIndex)
+    local garageLocation = GARAGE_CONFIG.location
+    if not garageLocation then
+        warn("[RNGGarageGenerator] Garage location not found in Workspace")
+        return nil
+    end
+    
+    -- Random position around garage perimeter
+    local angle = math.rad(math.random(0, 360))
+    local radius = GARAGE_CONFIG.decoSpawnRadius
+    local x = math.cos(angle) * radius
+    local z = math.sin(angle) * radius
+    local spawnPos = Vector3.new(x, 0, z)
+    
+    -- Create a placeholder decoration model
+    local decoModel = Instance.new("Part")
+    decoModel.Name = "Deco_" .. decoId
+    decoModel.Shape = Enum.PartType.Ball
+    decoModel.Size = Vector3.new(0.5, 0.5, 0.5)
+    decoModel.Color = Color3.fromRGB(100, 200, 255)  -- Cyan color
+    decoModel.Material = Enum.Material.Neon
+    decoModel.CanCollide = false
+    decoModel.CFrame = CFrame.new(spawnPos)
+    decoModel.Parent = garageLocation
+    
+    -- Add BillboardGui with decoration number
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Size = UDim2.new(1, 0, 1, 0)
+    billboardGui.MaxDistance = 50
+    billboardGui.Parent = decoModel
+    
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Text = "#" .. decoIndex
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+    textLabel.TextSize = 12
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.Parent = billboardGui
+    
+    return decoModel
+end
+
+--[[
+    Clear previous garage (remove all spawned models)
+    GAME_ARCHITECTURE: "Clear previous garage (remove car, decorations, lockers)"
+    
+    @return: boolean - Success
+]]
+function RNGGarageGenerator:ClearGarage()
+    local garageLocation = GARAGE_CONFIG.location
+    if not garageLocation then
+        return false
+    end
+    
+    -- Remove all car models
+    for _, child in ipairs(garageLocation:GetChildren()) do
+        if child.Name:match("^Car_") or child.Name:match("^Deco_") or child.Name:match("^Locker_") then
+            child:Destroy()
+        end
+    end
+    
+    print("[RNGGarageGenerator] Cleared garage")
+    return true
 end
 
 return RNGGarageGenerator
