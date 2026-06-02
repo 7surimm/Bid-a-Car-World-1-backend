@@ -1,6 +1,7 @@
 --[[
     ShopManager.lua
     Purpose: Dice shop where players buy dice for NPC generation
+    FIXES: GetDiceList() → GetInventory(playerId, "dice")
 ]]
 
 local ShopManager = {}
@@ -16,13 +17,7 @@ function ShopManager:BuyDice(playerId, diceType)
     local InventoryManager = require(script.Parent:WaitForChild("InventoryManager"))
     local ItemDatabase = require(script.Parent:WaitForChild("ItemDatabase"))
     
-    local dice = nil
-    for _, d in ipairs(ItemDatabase.DICE) do
-        if d.id == diceType then
-            dice = d
-            break
-        end
-    end
+    local dice = ItemDatabase:GetDice(diceType)
     
     if not dice then
         return false
@@ -37,7 +32,7 @@ function ShopManager:BuyDice(playerId, diceType)
     PlayerDataManager:UpdateStats(playerId, "totalMoneySpent", dice.price)
     
     local diceItem = {
-        id = "dice_" .. os.time(),
+        id = "dice_" .. os.time() .. "_" .. math.random(1, 9999),
         type = "dice",
         diceType = diceType,
         unopened = true,
@@ -50,6 +45,8 @@ end
 
 --[[
     Open dice to get NPC
+    FIX: Changed GetDiceList() to GetInventory(playerId, "dice")
+    
     @param playerId: string - Player ID
     @param diceId: string - Dice ID
     @return: table - Generated NPC
@@ -58,7 +55,8 @@ function ShopManager:OpenDice(playerId, diceId)
     local InventoryManager = require(script.Parent:WaitForChild("InventoryManager"))
     local DiceRNG = require(script.Parent:WaitForChild("DiceRNG"))
     
-    local diceList = InventoryManager:GetDiceList(playerId)
+    -- FIX: Use GetInventory instead of non-existent GetDiceList
+    local diceList = InventoryManager:GetInventory(playerId, "dice")
     local dice = nil
     
     for _, d in ipairs(diceList) do
@@ -68,7 +66,7 @@ function ShopManager:OpenDice(playerId, diceId)
         end
     end
     
-    if not dice then
+    if not dice or not dice.unopened then
         return nil
     end
     
